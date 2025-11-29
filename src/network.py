@@ -1,0 +1,89 @@
+import random
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch import optim
+
+
+class Network(nn.Module):
+    def __init__(self, sizes):
+        """입력층, 은닉층, 출력층을 초기화 하는 함수"""
+        super(Network, self).__init__()
+        self.num_layers = len(sizes)
+        self.sizes = sizes
+
+        layers = []
+        for i in range(self.num_layers - 1): # 길이가 4인 리스트의 각 요소에 다 접근하려면 1 빼줘야함 (이것도 적을까)
+            layers.append(nn.Linear(sizes[i], sizes[i + 1])) # 입력층(i번 인덱스의 뉴런들)에서 출력층(i+1번 인덱스의 뉴런들)로 연산하는 계층을 생성한 후 추가
+        self.layers = nn.ModuleList(layers)
+
+    def forward(self, inputs):
+        """입력(inputs)에 대한 신경망의 출력을 반환. 순전파 함수"""
+        for i in range(self.num_layers - 2): # 마지막 계층을 제외한 모든 계층에 시그모이드 활성화 함수 적용. 시그모이드(활성화) 함수 -> 모든 실수값을 0 ~ 1로 압축시키는 함수
+            inputs = torch.sigmoid(self.layers[i](inputs))
+        inputs = self.layers[-1](inputs) # 출력 계층에는 활성화 함수 적용 안함
+        return inputs
+
+    def MBGD(self, training_data, epochs=30, mini_batch_size=10, eta=3.0, test_data=None, l2_lambda=0.01):
+        """미니배치 확률적 경사 하강법을 사용하여 신경망 학습
+           test_data가 입력되면 매 에포크 후 테스트 데이터에 대해 신경망을 평가함"""
+        n = len(training_data)
+        optimizer = optim.SGD(self.parameters(), lr=eta, weight_decay=l2_lambda)
+        criterion = nn.CrossEntropyLoss()
+
+        for j in range(epochs):
+            random.shuffle(training_data)
+            mini_batches = [
+                training_data[k:k+mini_batch_size] for k in range(0, n, mini_batch_size) # 미니배치의 크기만큼 전체 훈련 데이터셋을 슬라이스하여 미니배치들을 준비
+            ]
+
+            for mini_batch in mini_batches:
+                inputs = torch.tensor(np.array([x.ravel() for x, _ in mini_batch]), dtype=torch.float32) # 미니배치 데이터 준비
+                labels = torch.tensor([np.argmax(y) for x, y in mini_batch], dtype=torch.long)
+
+                optimizer.zero_grad() # 매 에포크마다 기울기 초기화
+
+                outputs = self.forward(inputs) # 순전파를 수행하여 예측값 계산
+                loss = criterion(outputs, labels) # 손실값 계산
+                loss.backward() # 역전파를 수행하여 가중차에 대한 손실을 계산
+                optimizer.step() # 계산된 기울기를 이용하여 가중치를 업데이트
+
+            if test_data:
+                n_test = len(test_data)
+                accuracy = self.evaluate(test_data)
+                print(f"Epoch {j+1}: {n_test} test examples; accuracy: {100 * (accuracy / n_test):.1f}%")
+            else:
+                print(f"Epoch {j+1} complete")
+
+    def evaluate(self, test_data):
+        """신경망이 올바른 결과를 출력하는 테스트 입력의 수를 반환"""
+        self.eval() # 평가 모드로 전환하여 훈련에만 사용되는 기능을 비활성화
+
+        correct = 0
+        with torch.no_grad(): # 평가에는 기울기 계산이 필요 없으므로 비활성화
+            for x, y in test_data:
+                inputs = torch.tensor(x.ravel(), dtype=torch.float32)
+                label = y
+
+                outputs = self.forward(inputs) # 순전파를 수행하여 예측값 획득
+                pred = outputs.argmax(dim=0, keepdim=True) # 가장 큰 값을 예측값으로 저장
+                if pred.item() == label: # 값이 가장 큰 뉴런과 정답이 일치하는지 확인
+                    correct += 1
+            self.train()
+
+            return correct
+
+    def save_model(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load_model(self, path):
+        try:
+            self.load_state_dict(torch.load(path))
+            self.eval()
+            print("Model loaded successfully.")
+        except FileNotFoundError:
+            print("Model file not found.")
+            print("Please train the network first.")
+
+
