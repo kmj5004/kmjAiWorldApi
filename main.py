@@ -18,10 +18,9 @@ app.add_middleware(
 )
 
 training_data, validation_data, test_data = mnist_loader.load_data()
-net = network.Network([784, 30, 10])
+net = network.Network([784, 100, 30, 10])
 
-model_path = "./trained_data/mnist_net.pth"
-net.load_model(model_path)
+net.load_model()
 
 class ImageData(BaseModel):
     image: list[float]

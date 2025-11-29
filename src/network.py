@@ -4,7 +4,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
+from src.config_utils import load_hyperparams
 
+path = '../trained_data/mnist_net.pth'
 
 class Network(nn.Module):
     def __init__(self, sizes):
@@ -25,9 +27,16 @@ class Network(nn.Module):
         inputs = self.layers[-1](inputs) # 출력 계층에는 활성화 함수 적용 안함
         return inputs
 
-    def MBGD(self, training_data, epochs=30, mini_batch_size=10, eta=3.0, test_data=None, l2_lambda=0.01):
+    def MBGD(self, training_data, test_data=None, eta=None, l2_lambda=None):
         """미니배치 확률적 경사 하강법을 사용하여 신경망 학습
            test_data가 입력되면 매 에포크 후 테스트 데이터에 대해 신경망을 평가함"""
+        print("학습을 시작합니다.")
+        hyperparameters = load_hyperparams()
+        eta = eta if eta is not None else hyperparameters.eta
+        l2_lambda = l2_lambda if l2_lambda is not None else hyperparameters.l2_lambda
+        epochs = hyperparameters.epochs
+        mini_batch_size = hyperparameters.mini_batch_size
+
         n = len(training_data)
         optimizer = optim.SGD(self.parameters(), lr=eta, weight_decay=l2_lambda)
         criterion = nn.CrossEntropyLoss()
@@ -52,9 +61,10 @@ class Network(nn.Module):
             if test_data:
                 n_test = len(test_data)
                 accuracy = self.evaluate(test_data)
-                print(f"Epoch {j+1}: {n_test} test examples; accuracy: {100 * (accuracy / n_test):.1f}%")
+                print(f"Epoch {j+1}: {n_test} test examples; 정확도: {100 * (accuracy / n_test):.1f}%")
             else:
-                print(f"Epoch {j+1} complete")
+                print(f"Epoch {j+1} 완료")
+                print("학습이 완료되었습니다")
 
     def evaluate(self, test_data):
         """신경망이 올바른 결과를 출력하는 테스트 입력의 수를 반환"""
@@ -74,16 +84,16 @@ class Network(nn.Module):
 
             return correct
 
-    def save_model(self, path):
+    def save_model(self):
         torch.save(self.state_dict(), path)
 
-    def load_model(self, path):
+    def load_model(self):
         try:
             self.load_state_dict(torch.load(path))
             self.eval()
-            print("Model loaded successfully.")
+            print("모델이 성공적으로 로딩되었습니다.")
         except FileNotFoundError:
-            print("Model file not found.")
-            print("Please train the network first.")
+            print("모델 파일을 찾는데 실패했습니다.")
+            print("모델 학습을 먼저 진행해주세요.")
 
 
