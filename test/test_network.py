@@ -2,7 +2,7 @@ from src import mnist_loader, network
 
 training_data, validation_data, test_data = mnist_loader.load_data()
 
-net = network.Network([784, 100, 30, 10])
+net = network.Network([784, 256, 128, 10])
 
 net.load_model()
 

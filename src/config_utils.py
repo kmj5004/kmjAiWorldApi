@@ -21,6 +21,7 @@ def load_hyperparams():
             data = json.load(f)
         return Hyperparams(**data)
     except FileNotFoundError:
+        print("최적의 값을 불러오는데 실패했습니다. 임의의 값을 대신 반환합니다. find_eta_lamda.py를 실행하신 후 다시 불러오기를 시도해주세요")
         return Hyperparams(
             eta=0.1, l2_lambda=0.001, epochs=40, mini_batch_size=32
         )

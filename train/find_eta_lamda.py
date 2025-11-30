@@ -2,9 +2,28 @@ from src import mnist_loader
 from src.config_utils import save_hyperparams, Hyperparams
 from src.network import Network
 import numpy as np
+import multiprocessing
+from multiprocessing import Pool
 
 file_path = '../best_config.json'
 
+
+def train_and_evaluate_single_combination(args):
+    eta, lambda_, train_data, val_data = args
+
+    net_test = Network([784, 256, 128, 10])
+
+    print(f"\n[Process: {multiprocessing.current_process().name}] 탐색 시작: eta: {eta:.6f}, lambda: {lambda_:.6f}")
+
+    net_test.MBGD(training_data=train_data, eta=eta, l2_lambda=lambda_, test_data=val_data)
+
+    accuracy = net_test.evaluate(val_data)
+    total = len(val_data)
+    percentage = accuracy / total * 100
+
+    print(f"[Process: {multiprocessing.current_process().name}] 완료. 정확도: {percentage:.2f}%")
+
+    return percentage, eta, lambda_
 
 def find_optimal_eta_lambda(initial_etas, initial_lambdas, iterations=5):
     print("=" * 50)
@@ -19,6 +38,9 @@ def find_optimal_eta_lambda(initial_etas, initial_lambdas, iterations=5):
 
     etas_to_test = initial_etas
     lambdas_to_test = initial_lambdas
+
+    num_processes = multiprocessing.cpu_count()
+    print(f"병렬 처리를 위해 {num_processes}개 프로세스를 사용합니다.")
 
     for i in range(iterations):
         print(f"\n======== {i + 1}차 탐색 (범위 좁히기) 시작 ========")
@@ -36,30 +58,24 @@ def find_optimal_eta_lambda(initial_etas, initial_lambdas, iterations=5):
             log_lambda_max = log_lambda + 0.5 * range_factor
             lambdas_to_test = np.logspace(log_lambda_min, log_lambda_max, 4).tolist()
 
+        tasks = []
+        for eta in etas_to_test:
+            for lambda_ in lambdas_to_test:
+                tasks.append((eta, lambda_, train_data, val_data))
+
         current_best_percentage = -1.0
         current_best_eta, current_best_lambda = best_eta, best_lambda
 
         print(f"-> ETA 후보군: {np.round(etas_to_test, 5).tolist()}")
         print(f"-> LAMBDA 후보군: {np.round(lambdas_to_test, 5).tolist()}")
 
-        for eta in etas_to_test:
-            for lambda_ in lambdas_to_test:
-                net_test = Network([784, 100, 30, 10])
-                print("=" * 50)
-                print(f"탐색 {i + 1}차: eta: {eta:.6f}, lambda: {lambda_:.6f}")
-                print("=" * 50)
-                print(f"Training data: {len(train_data)}, Validation data: {len(val_data)}")
+        with Pool(processes=num_processes) as pool:
+            results = pool.map(train_and_evaluate_single_combination, tasks)
 
-                net_test.MBGD(training_data=train_data, eta=eta, l2_lambda=lambda_, test_data=val_data)
-
-                accuracy = net_test.evaluate(val_data)
-                total = len(val_data)
-                percentage = accuracy / total * 100
-                print(f"테스트 완료. 정확도: {percentage:.2f}%")
-
-                if percentage > current_best_percentage:
-                    current_best_percentage = percentage
-                    current_best_eta, current_best_lambda = eta, lambda_
+        for percentage, eta, lambda_ in results:
+            if percentage > current_best_percentage:
+                current_best_percentage = percentage
+                current_best_eta, current_best_lambda = eta, lambda_
 
         if current_best_percentage > best_percentage:
             best_percentage = current_best_percentage
@@ -78,8 +94,8 @@ def find_optimal_eta_lambda(initial_etas, initial_lambdas, iterations=5):
 
     save_hyperparams(Hyperparams(eta=best_eta, l2_lambda=best_lambda, epochs=40, mini_batch_size=32))
 
-
-find_optimal_eta_lambda(
-    initial_etas=[0.01, 0.1, 1.0, 3.0],
-    initial_lambdas=[0.0001, 0.001, 0.01, 0.1]
-)
+if __name__ == '__main__':
+    find_optimal_eta_lambda(
+        initial_etas=[0.009, 0.01, 0.02, 0.03, 0.05, 0.06],
+        initial_lambdas=[0.00001, 0.0001, 0.001]
+    )
