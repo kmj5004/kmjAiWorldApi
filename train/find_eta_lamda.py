@@ -1,6 +1,6 @@
-from src import mnist_loader
-from src.config_utils import save_hyperparams, Hyperparams
-from src.network import Network
+from src.mnist import mnist_loader
+from src.mnist.config_utils import save_hyperparams, Hyperparams, load_layers
+from src.mnist.network import Network
 import numpy as np
 import multiprocessing
 from multiprocessing import Pool
@@ -11,7 +11,7 @@ file_path = '../best_config.json'
 def train_and_evaluate_single_combination(args):
     eta, lambda_, train_data, val_data = args
 
-    net_test = Network([784, 256, 128, 10])
+    net_test = Network(load_layers())
 
     print(f"\n[Process: {multiprocessing.current_process().name}] 탐색 시작: eta: {eta:.6f}, lambda: {lambda_:.6f}")
 

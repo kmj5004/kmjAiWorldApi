@@ -1,13 +1,16 @@
-import torch
 from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
-import numpy as np
 
-from src import mnist_loader, network
+from src.mnist.mnist_router import router as mnist_router
+from src.tictactoe.tictactoe_router import router as tictactoe_router
+from src.gomoku.gomoku_router import router as gomoku_router
 
-app = FastAPI()
-
+app = FastAPI(
+    title="KMJ AI World API",
+    description="API for MNIST digit recognition, Tic-Tac-Toe AI, and Gomoku AI",
+    version="1.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,24 +20,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-training_data, validation_data, test_data = mnist_loader.load_data()
-net = network.Network([784, 256, 128, 10])
+# Include routers
+app.include_router(mnist_router)
+app.include_router(tictactoe_router)
+app.include_router(gomoku_router)
 
-net.load_model("./trained_data/mnist_net.pth")
-
-class ImageData(BaseModel):
-    image: list[float]
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
-
-
-@app.post("/network/predict", tags=["network"])
-async def predict(image: ImageData):
-    image_array = np.array(image.image).reshape(784, 1)
-    tensor_img = torch.tensor(image_array.ravel(), dtype=torch.float32).to(device)
-    prediction = torch.argmax(net.forward(tensor_img)).item()
-    return {"result": prediction}
+    return {
+        "message": "KMJ AI World API",
+        "endpoints": {
+            "mnist": {
+                "predict": "/mnist/predict",
+                "train": "/mnist/train",
+                "test": "/mnist/test",
+                "best_config": "/mnist/best-config"
+            },
+            "tictactoe": {
+                "api": "/tictactoe",
+                "game": "/static/tictactoe.html",
+                "new_game": "/tictactoe/new-game",
+                "move": "/tictactoe/move"
+            },
+            "gomoku": {
+                "api": "/gomoku",
+                "game": "/static/gomoku.html",
+                "new_game": "/gomoku/new-game",
+                "move": "/gomoku/move",
+                "info": "/gomoku/info"
+            },
+            "docs": "/docs"
+        }
+    }

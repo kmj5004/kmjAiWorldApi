@@ -1,8 +1,9 @@
-from src import mnist_loader, network
+from src.mnist import mnist_loader, network
+from src.mnist.config_utils import load_layers
 
 training_data, validation_data, test_data = mnist_loader.load_data()
 
-net = network.Network([784, 256, 128, 10])
+net = network.Network(load_layers())
 
 print("훈련이 시작되었습니다.")
 print(f"Training data: {len(training_data)}, Validation data: {len(validation_data)}")

@@ -1,16 +1,20 @@
 # kmjAiWorld
 
-MNIST 손글씨 숫자 인식을 위한 신경망 프로젝트입니다. PyTorch를 사용하여 구현된 신경망과 FastAPI 기반 REST API 서버를 제공합니다.
+AI를 활용한 머신러닝 프로젝트입니다. MNIST 손글씨 숫자 인식 신경망과 틱택토(Tic-Tac-Toe) AI 게임을 제공합니다.
 
 ## 📋 프로젝트 개요
 
-이 프로젝트는 MNIST 데이터셋을 사용하여 손글씨 숫자(0-9)를 인식하는 신경망을 학습하고, 학습된 모델을 FastAPI를 통해 REST API로 제공합니다.
+이 프로젝트는 두 가지 주요 AI 기능을 제공합니다:
+1. MNIST 데이터셋을 사용한 손글씨 숫자(0-9) 인식
+2. 신경망 기반 틱택토 AI 게임
 
 ### 주요 기능
 
-- **신경망 구현**: PyTorch 기반 신경망
+- **MNIST 신경망**: PyTorch 기반 손글씨 숫자 인식
+- **틱택토 AI**: 신경망 기반 틱택토 게임 AI
 - **학습 알고리즘**: 미니배치 확률적 경사 하강법(Mini-Batch Gradient Descent)
 - **REST API**: FastAPI를 통한 예측 서비스
+- **웹 게임 인터페이스**: 틱택토 게임 HTML/JavaScript UI
 - **CORS 지원**: 프론트엔드 연동을 위한 CORS 설정
 
 ## 🏗️ 프로젝트 구조
@@ -18,15 +22,24 @@ MNIST 손글씨 숫자 인식을 위한 신경망 프로젝트입니다. PyTorch
 ```
 kmjAiWorld/
 ├── src/
-│   ├── mnist_loader.py      # MNIST 데이터 로더
-│   └── network.py            # 신경망 모델 구현
+│   ├── mnist/                # MNIST 도메인
+│   │   ├── config_utils.py   # 설정 관리
+│   │   ├── mnist_loader.py   # 데이터 로더
+│   │   ├── mnist_router.py   # API 라우터
+│   │   └── network.py        # 신경망 모델
+│   └── tictactoe/            # 틱택토 도메인
+│       ├── tictactoe_ai.py   # AI 모델
+│       └── tictactoe_router.py # API 라우터
 ├── train/
 │   └── train_network.py      # 모델 학습 스크립트
 ├── trained_data/
-│   └── mnist_net.pth         # 학습된 모델 파일
+│   └── mnist_net.pth         # 학습된 MNIST 모델
+├── models/
+│   └── tictactoe_model.pth   # 학습된 틱택토 모델
+├── static/
+│   └── tictactoe.html        # 틱택토 게임 웹 UI
 ├── data/                     # MNIST 데이터셋
-├── main.py                   # FastAPI 서버
-├── download_dataset.py       # 데이터셋 다운로드 스크립트
+├── main.py                   # FastAPI 서버 (라우터 통합)
 └── requirements.txt          # 의존성 패키지
 ```
 
@@ -84,15 +97,19 @@ uvicorn main:app --reload
 
 ## 📡 API 사용법
 
-### 엔드포인트
+### 메인 엔드포인트
 
 #### GET `/`
-서버 상태 확인
+서버 상태 및 사용 가능한 엔드포인트 확인
 ```bash
 curl http://localhost:8000/
 ```
 
-#### POST `/network/predict`
+### MNIST API
+
+모든 MNIST 엔드포인트는 `/mnist` 경로로 시작합니다.
+
+#### POST `/mnist/predict`
 손글씨 숫자 예측
 
 **요청 형식:**
@@ -111,13 +128,58 @@ curl http://localhost:8000/
 
 **예제:**
 ```bash
-curl -X POST "http://localhost:8000/network/predict" \
+curl -X POST "http://localhost:8000/mnist/predict" \
   -H "Content-Type: application/json" \
   -d '{"image": [0.0, 0.1, ...]}'
 ```
 
+#### 기타 MNIST 엔드포인트
+- `POST /mnist/train` - 모델 학습
+- `GET /mnist/test` - 모델 평가
+- `GET /mnist/best-config` - 최적 설정 조회
+- `POST /mnist/optimize` - 하이퍼파라미터 최적화
+- `WS /mnist/ws/training` - 학습 진행 상황 (WebSocket)
+
+### 틱택토 API
+
+#### GET `/tictactoe/new-game`
+새로운 게임 시작
+```bash
+curl http://localhost:8000/tictactoe/new-game
+```
+
+#### POST `/tictactoe/move`
+AI의 다음 수 얻기
+
+**요청 형식:**
+```json
+{
+  "board": [1, 0, 0, 0, -1, 0, 0, 0, 0]  // 9개의 정수 (0=빈칸, 1=X, -1=O)
+}
+```
+
+**응답 형식:**
+```json
+{
+  "move": 2,
+  "board": [1, 0, -1, 0, -1, 0, 0, 0, 0],
+  "winner": null,
+  "message": "AI plays position 2"
+}
+```
+
+#### 웹 게임 플레이
+브라우저에서 `http://localhost:8000/static/tictactoe.html`로 접속하여 AI와 게임을 플레이할 수 있습니다.
+
 ## 테스트 방법
+
+### MNIST
 Github의 kmjAiWorldWeb을 클론 받아 실행시키면 이미지 업로드, 28x28 사이즈로 압축, 픽셀값 계산, 예측값 까지 수월하게 테스트 가능합니다
+
+### 틱택토
+1. 서버 실행 후 브라우저에서 `http://localhost:8000/static/tictactoe.html` 접속
+2. 웹 UI를 통해 AI와 대결
+3. 또는 API 엔드포인트를 직접 호출하여 테스트
 
 ## 🧠 신경망 아키텍처
 
@@ -134,9 +196,10 @@ Github의 kmjAiWorldWeb을 클론 받아 실행시키면 이미지 업로드, 28
 
 - **딥러닝**: PyTorch
 - **웹 프레임워크**: FastAPI
-- **데이터 처리**: NumPy, SciPy
+- **데이터 처리**: NumPy, SciPy, Pandas
+- **머신러닝**: scikit-learn
 - **시각화**: Matplotlib
-- **데이터셋**: MNIST (torchvision)
+- **데이터셋**: MNIST (torchvision), 틱택토 게임 데이터
 
 ## 📝 라이선스
 

@@ -6,3 +6,7 @@ torch
 torchvision
 matplotlib
 starlette
+websockets
+uvicorn
+scikit-learn
+pandas
