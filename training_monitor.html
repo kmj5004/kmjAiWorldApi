@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학습 모니터링</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        input, button {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.training {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            padding-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🤖 신경망 학습 모니터링</h1>
+    
+    <div class="container">
+        <div id="connectionStatus" class="status disconnected">
+            WebSocket 연결 대기 중...
+        </div>
+
+        <div class="controls">
+            <input type="number" id="etaInput" placeholder="학습률 (eta) - 비우면 best_config 사용" step="0.001">
+            <input type="number" id="lambdaInput" placeholder="람다 (l2_lambda) - 비우면 best_config 사용" step="0.0001">
+            <button id="startTrainingBtn" onclick="startTraining()">학습 시작</button>
+            <button id="stopBtn" onclick="stopTraining()" disabled>중지</button>
+            <button onclick="loadBestConfig()">최적 설정 불러오기</button>
+            <button onclick="testModel()" style="background-color: #2196F3;">모델 테스트</button>
+            <button onclick="optimizeHyperparameters()" style="background-color: #FF9800;">최적값 찾기</button>
+        </div>
+    </div>
+
+    <div class="container" id="testResultContainer" style="display: none;">
+        <h2>🧪 테스트 결과</h2>
+        <div class="metrics">
+            <div class="metric-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                <div class="metric-label">정확도</div>
+                <div class="metric-value" id="testAccuracy">0.0%</div>
+            </div>
+            <div class="metric-card" style="background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);">
+                <div class="metric-label">정답 수</div>
+                <div class="metric-value" id="testCorrect">0</div>
+            </div>
+            <div class="metric-card" style="background: linear-gradient(135deg, #868f96 0%, #596164 100%);">
+                <div class="metric-label">전체 테스트 수</div>
+                <div class="metric-value" id="testTotal">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="optimizeContainer" style="display: none;">
+        <h2>🔍 최적값 탐색 설정</h2>
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">학습률(ETA) 후보군:</label>
+            <input type="text" id="optimizeEtas" value="0.009, 0.01, 0.02, 0.03, 0.05, 0.06" style="width: 100%;">
+            <small style="color: #666;">쉼표로 구분된 값들</small>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">람다 후보군:</label>
+            <input type="text" id="optimizeLambdas" value="0.00001, 0.0001, 0.001" style="width: 100%;">
+            <small style="color: #666;">쉼표로 구분된 값들</small>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">반복 횟수:</label>
+            <input type="number" id="optimizeIterations" value="5" min="1" max="10">
+            <small style="color: #666;">더 많은 반복은 더 정확하지만 시간이 오래 걸립니다</small>
+        </div>
+        <button onclick="startOptimization()" style="background-color: #FF9800;">탐색 시작</button>
+        <button onclick="checkOptimizeStatus()" style="background-color: #9C27B0;">상태 확인</button>
+        <div id="optimizeStatus" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>📊 실시간 메트릭</h2>
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-label">현재 에포크</div>
+                <div class="metric-value" id="currentEpoch">0</div>
+            </div>
+            <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                <div class="metric-label">손실값 (Loss)</div>
+                <div class="metric-value" id="currentLoss">0.00</div>
+            </div>
+            <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                <div class="metric-label">정확도</div>
+                <div class="metric-value" id="currentAccuracy">0.0%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📈 손실값 그래프</h2>
+        <div class="chart-container">
+            <canvas id="lossChart"></canvas>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📈 정확도 그래프</h2>
+        <div class="chart-container">
+            <canvas id="accuracyChart"></canvas>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📝 학습 로그</h2>
+        <div class="log" id="logContainer"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let lossChart = null;
+        let accuracyChart = null;
+        let optimizationChart = null;
+        const lossData = [];
+        const accuracyData = [];
+        const epochLabels = [];
+        const optimizationResults = {}; // iteration별로 결과 저장
+
+        // 차트 초기화
+        function initCharts() {
+            const lossCtx = document.getElementById('lossChart').getContext('2d');
+            lossChart = new Chart(lossCtx, {
+                type: 'line',
+                data: {
+                    labels: epochLabels,
+                    datasets: [{
+                        label: '손실값 (Loss)',
+                        data: lossData,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            const accuracyCtx = document.getElementById('accuracyChart').getContext('2d');
+            accuracyChart = new Chart(accuracyCtx, {
+                type: 'line',
+                data: {
+                    labels: epochLabels,
+                    datasets: [{
+                        label: '정확도 (%)',
+                        data: accuracyData,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+        }
+
+        // WebSocket 연결
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/training`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                updateStatus('connected', '✅ WebSocket 연결됨');
+                addLog('WebSocket 연결 성공');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleTrainingUpdate(data);
+            };
+
+            ws.onerror = (error) => {
+                updateStatus('disconnected', '❌ WebSocket 오류');
+                addLog('WebSocket 오류: ' + error);
+            };
+
+            ws.onclose = () => {
+                updateStatus('disconnected', '❌ WebSocket 연결 종료');
+                addLog('WebSocket 연결 종료');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // 학습 데이터 업데이트 처리
+        function handleTrainingUpdate(data) {
+            // 최적화 관련 데이터 처리
+            if (data.optimization) {
+                handleOptimizationUpdate(data);
+                return;
+            }
+            
+            if (data.status === 'completed') {
+                updateStatus('connected', '✅ ' + data.message);
+                addLog('학습 완료: ' + data.message);
+                document.getElementById('startTrainingBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                return;
+            }
+
+            if (data.status === 'stopped') {
+                updateStatus('connected', '⏸️ ' + data.message);
+                addLog('학습 중지됨: ' + data.message);
+                document.getElementById('startTrainingBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                return;
+            }
+
+            if (data.status === 'error') {
+                updateStatus('disconnected', '❌ ' + data.message);
+                addLog('오류: ' + data.message);
+                document.getElementById('startTrainingBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                return;
+            }
+
+            if (data.epoch) {
+                updateStatus('training', `🔄 학습 중... Epoch ${data.epoch}/${data.total_epochs}`);
+                
+                // 메트릭 업데이트
+                document.getElementById('currentEpoch').textContent = 
+                    `${data.epoch}/${data.total_epochs}`;
+                document.getElementById('currentLoss').textContent = 
+                    data.loss.toFixed(4);
+                
+                if (data.accuracy_percentage !== undefined) {
+                    document.getElementById('currentAccuracy').textContent = 
+                        data.accuracy_percentage.toFixed(1) + '%';
+                }
+
+                // 그래프 데이터 추가
+                epochLabels.push(`Epoch ${data.epoch}`);
+                lossData.push(data.loss);
+                if (data.accuracy_percentage !== undefined) {
+                    accuracyData.push(data.accuracy_percentage);
+                }
+
+                // 차트 업데이트
+                lossChart.update();
+                accuracyChart.update();
+
+                // 로그 추가
+                const logMsg = `Epoch ${data.epoch}: Loss=${data.loss.toFixed(4)}` + 
+                    (data.accuracy_percentage !== undefined ? 
+                        `, Accuracy=${data.accuracy_percentage.toFixed(2)}%` : '');
+                addLog(logMsg);
+            }
+        }
+
+        // 최적화 업데이트 처리
+        function handleOptimizationUpdate(data) {
+            if (data.status === 'completed') {
+                addLog('🎉 최적화 완료!');
+                addLog(`최적 결과: eta=${data.best_eta.toFixed(6)}, lambda=${data.best_lambda.toFixed(6)}, accuracy=${data.best_percentage.toFixed(2)}%`);
+                
+                const statusDiv = document.getElementById('optimizeStatus');
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#d4edda';
+                statusDiv.innerHTML = `<strong>✅ 완료!</strong><br>
+                    최적 ETA: ${data.best_eta.toFixed(6)}<br>
+                    최적 Lambda: ${data.best_lambda.toFixed(6)}<br>
+                    최고 정확도: ${data.best_percentage.toFixed(2)}%<br>
+                    <br>
+                    <strong>모든 결과 데이터:</strong><br>
+                    <small>총 ${data.all_results.length}개의 조합 테스트 완료</small>`;
+                
+                // 여기서 그래프를 그리도록 이벤트 발생
+                console.log('Optimization Results:', data.all_results);
+                // 사용자가 그래프를 구현할 수 있도록 데이터를 전역으로 노출
+                window.optimizationData = {
+                    results: data.all_results,
+                    best_eta: data.best_eta,
+                    best_lambda: data.best_lambda,
+                    best_percentage: data.best_percentage
+                };
+                
+                return;
+            }
+            
+            if (data.status === 'error') {
+                addLog('❌ 최적화 오류: ' + data.message);
+                const statusDiv = document.getElementById('optimizeStatus');
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#f8d7da';
+                statusDiv.innerHTML = `<strong>❌ 오류:</strong> ${data.message}`;
+                return;
+            }
+            
+            if (data.message) {
+                addLog(`🔍 ${data.message}`);
+            }
+            
+            if (data.optimization_result) {
+                const result = data.optimization_result;
+                addLog(`  [조합 ${data.combination}/${data.total_combinations}] eta=${result.eta.toFixed(6)}, lambda=${result.lambda.toFixed(6)} => ${result.percentage.toFixed(2)}%`);
+                
+                // iteration별로 결과 저장
+                if (!optimizationResults[result.iteration]) {
+                    optimizationResults[result.iteration] = [];
+                }
+                optimizationResults[result.iteration].push(result);
+                
+                // 실시간으로 데이터 노출
+                window.optimizationLiveData = {
+                    current_iteration: data.iteration,
+                    total_iterations: data.total_iterations || 5,
+                    results_by_iteration: optimizationResults,
+                    current_best: {
+                        eta: data.current_best_eta,
+                        lambda: data.current_best_lambda,
+                        percentage: data.current_best_percentage
+                    }
+                };
+                
+                const statusDiv = document.getElementById('optimizeStatus');
+                statusDiv.innerHTML = `<strong>🔄 진행 중...</strong><br>
+                    반복: ${data.iteration} / ${data.total_iterations || 5}<br>
+                    조합: ${data.combination} / ${data.total_combinations}<br>
+                    현재 최고: ${data.current_best_percentage > 0 ? data.current_best_percentage.toFixed(2) + '%' : 'N/A'}`;
+            }
+        }
+
+        // 상태 업데이트
+        function updateStatus(type, message) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = `status ${type}`;
+            statusEl.textContent = message;
+        }
+
+        // 로그 추가
+        function addLog(message) {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // 학습 시작
+        async function startTraining() {
+            const etaValue = document.getElementById('etaInput').value;
+            const lambdaValue = document.getElementById('lambdaInput').value;
+            
+            // 빈 문자열이면 null로 전송 (best_config 사용)
+            const eta = etaValue === '' ? null : parseFloat(etaValue);
+            const l2_lambda = lambdaValue === '' ? null : parseFloat(lambdaValue);
+
+            try {
+                const response = await fetch('http://localhost:8000/network/train', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        eta: eta,
+                        l2_lambda: l2_lambda,
+                        save_model: true
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                // 데이터 초기화
+                lossData.length = 0;
+                accuracyData.length = 0;
+                epochLabels.length = 0;
+                document.getElementById('logContainer').innerHTML = '';
+
+                addLog('학습 시작 요청 전송');
+                addLog(`파라미터: eta=${data.eta}, lambda=${data.l2_lambda}`);
+                if (data.info) addLog(data.info);
+                
+                document.getElementById('startTrainingBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+            } catch (error) {
+                alert('학습 시작 실패: ' + error);
+                addLog('학습 시작 실패: ' + error);
+            }
+        }
+
+        // 최적 설정 불러오기
+        async function loadBestConfig() {
+            try {
+                const response = await fetch('http://localhost:8000/network/best-config');
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    addLog(data.error);
+                    return;
+                }
+                
+                document.getElementById('etaInput').value = data.eta;
+                document.getElementById('lambdaInput').value = data.l2_lambda;
+                
+                addLog(`최적 설정 불러옴: eta=${data.eta}, lambda=${data.l2_lambda}, epochs=${data.epochs}`);
+            } catch (error) {
+                alert('설정 불러오기 실패: ' + error);
+                addLog('설정 불러오기 실패: ' + error);
+            }
+        }
+
+        // 모델 테스트
+        async function testModel() {
+            try {
+                addLog('모델 테스트 시작...');
+                const response = await fetch('http://localhost:8000/network/test');
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    addLog(data.error);
+                    return;
+                }
+                
+                // 테스트 결과 표시
+                document.getElementById('testResultContainer').style.display = 'block';
+                document.getElementById('testAccuracy').textContent = data.percentage.toFixed(2) + '%';
+                document.getElementById('testCorrect').textContent = data.accuracy;
+                document.getElementById('testTotal').textContent = data.total;
+                
+                addLog(`테스트 완료: ${data.accuracy}/${data.total} (${data.percentage.toFixed(2)}%)`);
+            } catch (error) {
+                alert('모델 테스트 실패: ' + error);
+                addLog('모델 테스트 실패: ' + error);
+            }
+        }
+
+        // 최적값 찾기 UI 토글
+        function optimizeHyperparameters() {
+            const container = document.getElementById('optimizeContainer');
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
+        }
+
+        // 최적값 탐색 시작
+        async function startOptimization() {
+            try {
+                const etasStr = document.getElementById('optimizeEtas').value;
+                const lambdasStr = document.getElementById('optimizeLambdas').value;
+                const iterations = parseInt(document.getElementById('optimizeIterations').value);
+
+                // 문자열을 배열로 변환
+                const etas = etasStr.split(',').map(v => parseFloat(v.trim()));
+                const lambdas = lambdasStr.split(',').map(v => parseFloat(v.trim()));
+
+                const response = await fetch('http://localhost:8000/network/optimize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        initial_etas: etas,
+                        initial_lambdas: lambdas,
+                        iterations: iterations
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    addLog(data.error);
+                    return;
+                }
+
+                addLog('최적값 탐색 시작됨');
+                addLog(`⚠️ ${data.warning}`);
+                addLog(`ETA 후보: ${data.initial_etas.join(', ')}`);
+                addLog(`Lambda 후보: ${data.initial_lambdas.join(', ')}`);
+                addLog(`반복 횟수: ${data.iterations}`);
+                
+                document.getElementById('optimizeStatus').style.display = 'block';
+                document.getElementById('optimizeStatus').innerHTML = 
+                    `<strong>상태:</strong> 탐색 진행 중...<br>
+                     <small>이 작업은 매우 오래 걸릴 수 있습니다. "상태 확인" 버튼으로 진행 상황을 확인하세요.</small>`;
+            } catch (error) {
+                alert('최적값 탐색 시작 실패: ' + error);
+                addLog('최적값 탐색 시작 실패: ' + error);
+            }
+        }
+
+        // 최적화 상태 확인
+        async function checkOptimizeStatus() {
+            try {
+                const response = await fetch('http://localhost:8000/network/optimize/status');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('optimizeStatus');
+                statusDiv.style.display = 'block';
+                
+                if (data.is_optimizing) {
+                    statusDiv.innerHTML = `<strong>상태:</strong> 🔄 ${data.message}`;
+                    statusDiv.style.background = '#fff3cd';
+                } else {
+                    statusDiv.innerHTML = `<strong>상태:</strong> ✅ ${data.message}`;
+                    statusDiv.style.background = '#d4edda';
+                    addLog('최적화 상태: ' + data.message);
+                }
+            } catch (error) {
+                alert('상태 확인 실패: ' + error);
+                addLog('상태 확인 실패: ' + error);
+            }
+        }
+
+        // 학습 중지
+        async function stopTraining() {
+            try {
+                const response = await fetch('http://localhost:8000/network/train/stop', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    addLog(data.error);
+                } else {
+                    addLog('학습 중지 요청 전송됨');
+                    updateStatus('connected', '⏸️ 학습 중지 중...');
+                }
+            } catch (error) {
+                alert('학습 중지 실패: ' + error);
+                addLog('학습 중지 실패: ' + error);
+            }
+        }
+
+        // 페이지 로드 시 초기화
+        window.onload = () => {
+            initCharts();
+            connectWebSocket();
+        };
+    </script>
+</body>
+</html>

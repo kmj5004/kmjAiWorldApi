@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오목 AI - Gomoku</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 700px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+
+        .game-info {
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            color: #555;
+            min-height: 30px;
+            font-weight: bold;
+        }
+
+        .board-container {
+            display: inline-block;
+            background: #daa520;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.2);
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(15, 30px);
+            grid-template-rows: repeat(15, 30px);
+            gap: 0;
+            position: relative;
+        }
+
+        .cell {
+            width: 30px;
+            height: 30px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cell::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #000;
+            top: 50%;
+            left: 0;
+        }
+
+        .cell::after {
+            content: '';
+            position: absolute;
+            height: 100%;
+            width: 1px;
+            background: #000;
+            left: 50%;
+            top: 0;
+        }
+
+        .cell:hover:not(.occupied) {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .stone {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            position: relative;
+            z-index: 10;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .black {
+            background: radial-gradient(circle at 30% 30%, #444, #000);
+        }
+
+        .white {
+            background: radial-gradient(circle at 30% 30%, #fff, #ddd);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        .new-game-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .new-game-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .difficulty-btn {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .difficulty-btn.active {
+            background: #764ba2;
+            color: white;
+        }
+
+        .winner {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .last-move {
+            background: rgba(255, 255, 0, 0.3);
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 오목 AI</h1>
+        <div class="subtitle">Gomoku with MCTS + Deep Learning</div>
+        
+        <div class="game-info" id="gameInfo">게임을 시작하세요!</div>
+        
+        <div style="display: flex; justify-content: center;">
+            <div class="board-container">
+                <div class="board" id="board"></div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="new-game-btn" onclick="newGame()">새 게임</button>
+            <button class="difficulty-btn" id="easy" onclick="setDifficulty('easy')">쉬움</button>
+            <button class="difficulty-btn active" id="normal" onclick="setDifficulty('normal')">보통</button>
+            <button class="difficulty-btn" id="hard" onclick="setDifficulty('hard')">어려움</button>
+        </div>
+        
+        <div class="stats" id="stats">
+            흑(사람) vs 백(AI) | MCTS 기반 오목 AI
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/gomoku';
+        const BOARD_SIZE = 15;
+        let gameId = null;
+        let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+        let currentPlayer = 1; // 1: black (human), -1: white (AI)
+        let gameActive = true;
+        let difficulty = 'normal';
+        let lastMove = null;
+
+        function initBoard() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    cell.onclick = () => handleCellClick(i, j);
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function updateDisplay() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                const value = board[row][col];
+                
+                cell.innerHTML = '';
+                cell.classList.remove('occupied', 'last-move');
+                
+                if (lastMove && lastMove.row === row && lastMove.col === col) {
+                    cell.classList.add('last-move');
+                }
+                
+                if (value !== 0) {
+                    const stone = document.createElement('div');
+                    stone.className = 'stone ' + (value === 1 ? 'black' : 'white');
+                    cell.appendChild(stone);
+                    cell.classList.add('occupied');
+                }
+            });
+        }
+
+        async function newGame() {
+            try {
+                const response = await fetch(`${API_URL}/new-game`);
+                const data = await response.json();
+                
+                gameId = data.game_id;
+                board = data.board;
+                currentPlayer = data.current_player;
+                gameActive = true;
+                lastMove = null;
+                
+                updateDisplay();
+                document.getElementById('gameInfo').textContent = '당신의 차례입니다 (흑돌)';
+                document.getElementById('gameInfo').classList.remove('winner');
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('gameInfo').textContent = 'API 오류 발생!';
+            }
+        }
+
+        async function handleCellClick(row, col) {
+            if (!gameActive || board[row][col] !== 0 || currentPlayer !== 1) return;
+
+            document.getElementById('gameInfo').textContent = '처리 중...';
+            document.getElementById('board').parentElement.classList.add('loading');
+
+            try {
+                // 1. 사람의 수 전송
+                const humanResponse = await fetch(`${API_URL}/human-move?game_id=${gameId}&row=${row}&col=${col}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const humanData = await humanResponse.json();
+                
+                if (!humanData.success) {
+                    document.getElementById('gameInfo').textContent = '잘못된 수입니다!';
+                    document.getElementById('board').parentElement.classList.remove('loading');
+                    return;
+                }
+                
+                // 보드 업데이트
+                board = humanData.board;
+                lastMove = {row, col};
+                currentPlayer = humanData.current_player;
+                updateDisplay();
+                
+                // 게임 종료 확인
+                if (humanData.game_over) {
+                    document.getElementById('board').parentElement.classList.remove('loading');
+                    endGame(humanData.winner);
+                    return;
+                }
+                
+                // 2. AI의 수 요청
+                document.getElementById('gameInfo').textContent = 'AI가 생각 중...';
+                
+                const aiResponse = await fetch(`${API_URL}/move`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        game_id: gameId,
+                        difficulty: difficulty
+                    })
+                });
+
+                const aiData = await aiResponse.json();
+                
+                if (aiData.row >= 0 && aiData.col >= 0) {
+                    board = aiData.board;
+                    lastMove = {row: aiData.row, col: aiData.col};
+                    currentPlayer = 1; // 다시 사람 차례
+                    updateDisplay();
+                }
+
+                document.getElementById('board').parentElement.classList.remove('loading');
+
+                if (aiData.game_over) {
+                    endGame(aiData.winner);
+                } else {
+                    document.getElementById('gameInfo').textContent = '당신의 차례입니다 (흑돌)';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('gameInfo').textContent = 'API 오류 발생!';
+                document.getElementById('board').parentElement.classList.remove('loading');
+            }
+        }
+
+        function endGame(winner) {
+            gameActive = false;
+            const infoEl = document.getElementById('gameInfo');
+            infoEl.classList.add('winner');
+            
+            if (winner === 1) {
+                infoEl.textContent = '🎉 축하합니다! 당신이 이겼습니다!';
+            } else if (winner === -1) {
+                infoEl.textContent = '😅 AI가 이겼습니다!';
+            } else {
+                infoEl.textContent = '🤝 무승부입니다!';
+            }
+        }
+
+        function setDifficulty(level) {
+            difficulty = level;
+            document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById(level).classList.add('active');
+        }
+
+        // 초기화
+        initBoard();
+        newGame();
+    </script>
+</body>
+</html>
